@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ISAACLAB_RFM_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 SCRIPT_PATH="${SCRIPT_DIR}/$(basename -- "${BASH_SOURCE[0]}")"
 
-export WBC_LOG_ROOT="${WBC_LOG_ROOT:-${ISAACLAB_RFM_DIR}/logs/rsl_rl}"
+export WBC_LOG_ROOT="${WBC_LOG_ROOT:-/media/edwin/ChenJing26/WBC_logs}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 PYTHON_BIN="$(command -v "${PYTHON_BIN:-python}")"
 STARTUP_GRACE_SECONDS="${STARTUP_GRACE_SECONDS:-60}"

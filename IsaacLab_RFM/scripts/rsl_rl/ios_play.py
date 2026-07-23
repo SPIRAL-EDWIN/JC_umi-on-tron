@@ -86,10 +86,9 @@ def main():
     env_cfg.seed = agent_cfg.seed
 
     # specify directory for logging experiments
-    # Match ios_train.py so that play/resume finds repository-local runs by
-    # default while still allowing WBC_LOG_ROOT to select another location.
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    default_log_root = os.path.join(os.path.dirname(os.path.dirname(script_dir)), "logs", "rsl_rl")
+    # Match ios_train.py so that play/resume finds runs on the mounted local
+    # data drive by default. WBC_LOG_ROOT can override this per invocation.
+    default_log_root = "/media/edwin/ChenJing26/WBC_logs"
     log_root_path = os.path.abspath(
         os.environ.get("WBC_LOG_ROOT", default_log_root)
     )

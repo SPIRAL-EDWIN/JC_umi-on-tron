@@ -108,9 +108,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
 
     # specify directory for logging experiments
-    # Keep logs in the repository by default so the script is portable across
-    # machines. Set WBC_LOG_ROOT to use a different location.
-    default_log_root = os.path.join(os.path.dirname(os.path.dirname(_script_dir)), "logs", "rsl_rl")
+    # The local branch keeps training artifacts on the mounted local data drive.
+    # Set WBC_LOG_ROOT to override this location for an individual launch.
+    default_log_root = "/media/edwin/ChenJing26/WBC_logs"
     log_root_path = os.path.abspath(
         os.environ.get("WBC_LOG_ROOT", default_log_root)
     )
