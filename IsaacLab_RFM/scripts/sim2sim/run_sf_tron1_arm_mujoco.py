@@ -46,8 +46,8 @@ DEPLOYED_MODEL_DIR = (
 )
 WBC_LOG_ROOT = Path(os.environ.get("WBC_LOG_ROOT", "/media/edwin/ChenJing26/WBC_logs"))
 DEFAULT_TRAJECTORY = Path("/home/phi5090ii/UMI-ON-TRON/data/pushing.pkl")
-# The trained task tracks the URDF's eef_link directly.  It is already the
-# UMI gripper-base frame, so the former link6 -> tip conversion must not run.
+# The trained task tracks the URDF's zero-offset eef_link/link6 frame directly,
+# so no link6 -> tip conversion is applied during trajectory playback.
 TIP_OFFSET_POS = np.zeros(3, dtype=np.float64)
 TIP_OFFSET_RPY = (0.0, 0.0, 0.0)
 

@@ -144,9 +144,9 @@ def orient_commands_ranges_level(
         x = command_cfg.ranges.roll[1] + 0.04
         y = command_cfg.ranges.pitch[1] + 0.04
         z = command_cfg.ranges.yaw[1] + 0.04
-        x = min(x, 3.14)
-        y = min(y, 3.14)
-        z = min(z, 3.14)
+        x = min(x, 1.5)
+        y = min(y, 0.8)
+        z = min(z, 1.5)
         command_cfg.ranges.roll = (-x, x)
         command_cfg.ranges.pitch = (-y, y)
         command_cfg.ranges.yaw = (-z, z)

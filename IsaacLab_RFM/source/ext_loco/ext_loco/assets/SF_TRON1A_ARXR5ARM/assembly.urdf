@@ -380,8 +380,8 @@
   </link>
 
   <joint name="gripper_fixed_joint" type="fixed">
-      <!-- Track the EEF 0.15 m forward along the link6/J6 +X axis. -->
-      <origin xyz="0.15 0 0" rpy="0 0 0" />
+      <!-- Keep the named EEF body as a zero-offset alias of link6/J6. -->
+      <origin xyz="0 0 0" rpy="0 0 0" />
       <parent link="link6" />
       <child link="eef_link" />
   </joint>

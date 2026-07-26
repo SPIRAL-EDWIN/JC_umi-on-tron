@@ -183,8 +183,8 @@
                       <geom name="umi_link5_collision" class="collision" pos="0.1258700 0.0195168 0.0136097" type="mesh" mesh="umi_link5" />
                       <geom name="umi_link6_visual" class="visual" pos="0.1258700 -0.0195172 0.0136097" rgba="0.796078 0.823529 0.937255 1" type="mesh" mesh="umi_link6" />
                       <geom name="umi_link6_collision" class="collision" pos="0.1258700 -0.0195172 0.0136097" type="mesh" mesh="umi_link6" />
-                      <!-- Track the EEF 0.15 m forward along the link6/J6 +X axis. -->
-                      <body name="eef_link" pos="0.15 0 0" quat="1 0 0 0">
+                      <!-- Keep eef_link at the link6/J6 frame for training/deployment consistency. -->
+                      <body name="eef_link" pos="0 0 0" quat="1 0 0 0">
                         <site name="eef" type="sphere" size="0.004" rgba="1 0.2 0.1 0.8" />
                       </body>
                     </body>

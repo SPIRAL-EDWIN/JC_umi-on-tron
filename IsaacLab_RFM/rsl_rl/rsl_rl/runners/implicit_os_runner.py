@@ -23,7 +23,7 @@ import numpy as np
 class ImplicitOneStageRunner:
     """ImplicitOneStage runner for training and evaluation."""
 
-    def __init__(self, env: VecEnv, train_cfg, log_dir=None, device="cpu"):
+    def __init__(self, env: VecEnv, train_cfg, log_dir=None, device="cpu", distributed=False):
         self.cfg = train_cfg
         self.ppo_alg_cfg = train_cfg["ppo_algorithm"]
         # remove class name from config
@@ -33,6 +33,9 @@ class ImplicitOneStageRunner:
         self.contactNet_cfg = train_cfg["contactNet"]
         self.device = device
         self.env = env
+        self.distributed = distributed
+        self.rank = torch.distributed.get_rank() if distributed else 0
+        self.world_size = torch.distributed.get_world_size() if distributed else 1
 
         # The vectorized env returns (obs, extras)
         #   obs: tensor for policy observations
@@ -90,6 +93,7 @@ class ImplicitOneStageRunner:
         for key in ("p_mean", "p_std", "zero_action_input", "condition_drop_ratio"):
             ppo_ios_cfg.pop(key, None)
         self.ppo_alg = PPO_IOS(actor_critic, gru, self.contactNet, device=self.device, **ppo_ios_cfg)
+        self.ppo_alg.configure_distributed(distributed)
 
         self.cn_obs_hist_len = self.cfg["cn_obs_hist_len"]
         assert self.cn_obs_hist_len == contactnet_obs_hist.shape[1]
@@ -132,6 +136,43 @@ class ImplicitOneStageRunner:
         self.tot_time = 0
         self.current_learning_iteration = 0
         self.git_status_repos = [rsl_rl.__file__]
+        if self.distributed:
+            self._broadcast_training_state()
+
+    def _broadcast_training_state(self):
+        """Start every rank from rank 0's identical model state."""
+        modules = (self.actor_critic, self.ppo_alg.gru, self.ppo_alg.tf_encoder)
+        for module in modules:
+            for tensor in module.state_dict().values():
+                torch.distributed.broadcast(tensor, src=0)
+
+    def _normalize(self, normalizer, value):
+        """Update empirical statistics from the global multi-rank batch."""
+        if not self.distributed or not self.empirical_normalization or not normalizer.training:
+            return normalizer(value)
+        if normalizer.until is not None and normalizer.count >= normalizer.until:
+            return (value - normalizer._mean) / (normalizer._std + normalizer.eps)
+
+        dims = (0, 1) if value.dim() == 3 else (0,)
+        local_mean = value.mean(dim=dims, keepdim=True).view_as(normalizer._mean)
+        local_second_moment = value.square().mean(dim=dims, keepdim=True).view_as(normalizer._mean)
+        torch.distributed.all_reduce(local_mean)
+        torch.distributed.all_reduce(local_second_moment)
+        global_mean = local_mean / self.world_size
+        global_var = local_second_moment / self.world_size - global_mean.square()
+
+        count_x = value.shape[0] * self.world_size
+        normalizer.count += count_x
+        rate = count_x / normalizer.count
+        delta_mean = global_mean - normalizer._mean
+        normalizer._mean += rate * delta_mean
+        normalizer._var += rate * (
+            global_var.clamp_min(0.0)
+            - normalizer._var
+            + delta_mean * (global_mean - normalizer._mean)
+        )
+        normalizer._std.copy_(torch.sqrt(normalizer._var.clamp_min(0.0)))
+        return (value - normalizer._mean) / (normalizer._std + normalizer.eps)
 
     def learn(self, num_learning_iterations: int, init_at_random_ep_len: bool = False):
         # initialize writer
@@ -170,9 +211,9 @@ class ImplicitOneStageRunner:
             cn_obs_history.to(self.device),
         )
         # perform normalization
-        obs = self.obs_normalizer(obs)
-        critic_obs = self.critic_obs_normalizer(critic_obs)
-        cn_obs_history = self.contactNet_obs_normalizer(cn_obs_history)
+        obs = self._normalize(self.obs_normalizer, obs)
+        critic_obs = self._normalize(self.critic_obs_normalizer, critic_obs)
+        cn_obs_history = self._normalize(self.contactNet_obs_normalizer, cn_obs_history)
 
         ep_infos = []
         rewbuffer = deque(maxlen=100)
@@ -204,10 +245,16 @@ class ImplicitOneStageRunner:
                     actions = self.ppo_alg.act(obs, critic_obs, cn_obs_history)
                     obs, rewards, dones, infos = self.env.step(actions.to(self.env.device))
                     # perform normalization
-                    obs = self.obs_normalizer(obs)
-                    critic_obs = self.critic_obs_normalizer(infos["observations"]["critic"])
-                    cn_obs_history = self.contactNet_obs_normalizer(infos["observations"]["contactNet"])
-                    next_obs = self.next_obs_normalizer(infos["observations"]["next_obs"])
+                    obs = self._normalize(self.obs_normalizer, obs)
+                    critic_obs = self._normalize(
+                        self.critic_obs_normalizer, infos["observations"]["critic"]
+                    )
+                    cn_obs_history = self._normalize(
+                        self.contactNet_obs_normalizer, infos["observations"]["contactNet"]
+                    )
+                    next_obs = self._normalize(
+                        self.next_obs_normalizer, infos["observations"]["next_obs"]
+                    )
                     # move to the right device
                     obs, critic_obs, cn_obs_history, rewards, dones, next_obs = (
                         obs.to(self.device),
@@ -248,7 +295,7 @@ class ImplicitOneStageRunner:
             self.current_learning_iteration = it
             if self.log_dir is not None:
                 self.log(locals())
-            if it % self.save_interval == 0:
+            if self.rank == 0 and it % self.save_interval == 0:
                 self.save(os.path.join(self.log_dir, f"model_{it}.pt"))
             ep_infos.clear()
             if it == start_iter:
@@ -260,7 +307,8 @@ class ImplicitOneStageRunner:
                 #         self.writer.save_file(path)
                 pass
 
-        self.save(os.path.join(self.log_dir, f"model_{self.current_learning_iteration}.pt"))
+        if self.rank == 0:
+            self.save(os.path.join(self.log_dir, f"model_{self.current_learning_iteration}.pt"))
 
     def _gradient_penalty_scheme(self, it):
         if self.grad_penalty_scheme["is_used"]:

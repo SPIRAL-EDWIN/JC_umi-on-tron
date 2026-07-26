@@ -68,7 +68,12 @@ class MySceneCfg(InteractiveSceneCfg):
         debug_vis=False,
         mesh_prim_paths=["/World/ground"],
     )
-    contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
+    contact_forces = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/.*",
+        history_length=3,
+        track_air_time=True,
+        force_threshold=5.0,
+    )
     # lights
     light = AssetBaseCfg(
         prim_path="/World/light",
@@ -97,12 +102,12 @@ class CommandsCfg:
         resampling_time_scale=(0.5, 5.0),
         make_quat_unique=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(-0.5, 0.5),
-            pos_y=(-0.5, 0.5),
-            pos_z=(0.7, 1.6),
-            roll=(-3.2, 3.2),
-            pitch=(-3.2, 3.2),
-            yaw=(-3.2, 3.2),
+            pos_x=(-0.8, 0.8),
+            pos_y=(-0.8, 0.8),
+            pos_z=(0.1, 2.0),       # 0726 by Edwin
+            roll=(-1.5, 1.5),
+            pitch=(-0.8, 0.8),
+            yaw=(-1.5, 1.5),
         ),
         se3_decrease_vel_range=(0.5, 1.4),
         # Precision diagnostics only affect logging; they do not change observations or rewards.
@@ -128,7 +133,7 @@ class CommandsCfgPlay:
         file_path="/home/phi5090ii/NYX/umi-on-tron-lab/IsaacLab_RFM/data/pushing.pkl",
         planar_center=True,
         # add_random_height_range=(-0.05, 0.05),
-        # eef_link is fixed at the UMI gripper base frame, so no extra link6->tip offset is applied.
+        # eef_link is a zero-offset alias of link6/J6, so no extra tip offset is applied.
         tip_offset_pos=(0.0, 0.0, 0.0),
         tip_offset_rpy=(0.0, 0.0, 0.0),
         episode_length_s=10,
@@ -356,7 +361,7 @@ class EventCfg:
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base_Link"),
             # "mass_distribution_params": (-5.0, 5.0),
-            "mass_distribution_params": (-0.5, 3.0),   # by CZY
+            "mass_distribution_params": (-3, 3.0),   # by CZY
             "operation": "add",
         },
     )
@@ -420,7 +425,7 @@ class EventCfg:
         func=mdp.push_by_setting_velocity,
         mode="interval",
         interval_range_s=(10.0, 15.0),
-        params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
+        params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "z": (-0.1, 0.1), "roll": (-0.05, 0.05), "pitch": (-0.05, 0.05), "yaw": (-0.05, 0.05)}},
     )
 
 
@@ -438,8 +443,8 @@ class RewardsCfg:
     #     params={"pos_sigma": 0.6, "orn_sigma": 2.0, "command_name": "EE_pose"},
     # )
     # EE Tracking
-    track_EE_position_exp = RewTerm(func=mdp.track_EE_position_exp, weight=6.0, params={"command_name": "EE_pose", "std": math.sqrt(0.5)})            #2.0 by Edwin
-    track_EE_orientation_exp = RewTerm(func=mdp.track_EE_orientation_exp, weight=6.0, params={"command_name": "EE_pose", "std": math.sqrt(0.5)})      #3.0 by Edwin
+    track_EE_position_exp = RewTerm(func=mdp.track_EE_position_exp, weight=4.0, params={"command_name": "EE_pose", "std": math.sqrt(0.5)})            #2.0 by Edwin
+    track_EE_orientation_exp = RewTerm(func=mdp.track_EE_orientation_exp, weight=5.0, params={"command_name": "EE_pose", "std": math.sqrt(0.5)})      #3.0 by Edwin
     track_EE_pb = RewTerm(func=mdp.track_EE_pb, weight=15.0)
     track_EE_reference_exp = RewTerm(func=mdp.track_EE_reference_exp, weight=5.0, params={"std": math.sqrt(0.5), "init_value": 0.98})
 
@@ -499,8 +504,8 @@ class RewardsCfg:
     # dof_acc_l2 = RewTerm(
     #     func=mdp.joint_acc_l2, weight=-2.0e-6, params={"asset_cfg": SceneEntityCfg("robot", joint_names="J.*")}
     # )
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.1) #1.0 By Edwin
-    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-5.0e-4)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.75) #1.0 By Edwin
+    # action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-5.0e-4)
 
     # -- optional penalties
     dof_vel_ankle_l2 = RewTerm(
@@ -525,14 +530,9 @@ class RewardsCfg:
     # base_height_l2 = RewTerm(func=mdp.base_height_l2, weight=0.0, params={"target_height": 0.3})
     body_ee_alignment = RewTerm(
         func=mdp.body_ee_alignment,
-        weight=-1.5,
+        weight=-0.5,
         params={"joint_names": ["J1", "J5"]},
     )
-    # base_bidirectional_target_alignment = RewTerm(
-    #     func=mdp.base_bidirectional_target_alignment,
-    #     weight=-2.0,
-    #     params={"command_name": "EE_pose", "min_target_distance": 0.1},
-    # )
     feet_contacts_reg = RewTerm(
         func=mdp.feet_contacts_reg,
         weight=0.5,
@@ -564,22 +564,23 @@ class RewardsCfg:
     )
     foot_slip_l2 = RewTerm(
         func=mdp.foot_slip_l2,
-        weight=-2.0,                      
+        weight=-1.0,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_.*"),
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_.*"),
             "threshold": 5.0,
+            "contact_grace_period": 0.1,
         },
     )
     legs_min_separation = RewTerm(
         func=mdp.legs_min_separation,
-        weight=-5,
-        params={"min_distance": 0.18, "body_names": ("ankle_L_Link", "ankle_R_Link"), "axis": "y"},#0.2
+        weight=-2.0,
+        params={"min_distance": 0.2, "body_names": ("ankle_L_Link", "ankle_R_Link"), "axis": "y"},#0.2
     )
 
     base_height = RewTerm( # by CZY
         func=mdp.base_height_rough_l2,
-        weight=-1,#-2
+        weight=-0.5,#-2
         params={"target_height": 0.85, "sensor_cfg": SceneEntityCfg("height_scanner")},
     )
 
@@ -595,6 +596,13 @@ class TerminationsCfg:
     base_contact = DoneTerm(
         func=mdp.illegal_contact,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base_Link"), "threshold": 1.0},
+    )
+    knee_contact = DoneTerm(
+        func=mdp.illegal_contact,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="knee_[LR]_Link"),
+            "threshold": 5.0,
+        },
     )
 
     bad_orientation = DoneTerm(
@@ -639,15 +647,15 @@ class CurriculumCfg:
     pos_commands_ranges_level = CurrTerm(
         func=mdp.pos_commands_ranges_level,  # type: ignore
         params={
-            "max_range": {"pos_x": (-3.5, 3.5), "pos_y": (-3.5, 3.5), "pos_z": (0.1, 2.0)},
-            "update_interval": 60 * 24,  # 80 iterations * 24 steps per iteration
+            "max_range": {"pos_x": (-0.8, 0.8), "pos_y": (-0.8, 0.8), "pos_z": (0.1, 2.0)},
+            "update_interval": 80 * 24,  # 80 iterations * 24 steps per iteration
             "command_name": "EE_pose",
         },
     )
     orient_commands_ranges_level = CurrTerm(
         func=mdp.orient_commands_ranges_level, # type: ignore
         params={
-            "update_interval": 60 * 24,  # 80 iterations * 24 steps per iteration
+            "update_interval": 80 * 24,  # 80 iterations * 24 steps per iteration
             "command_name": "EE_pose",
         },
     )
@@ -670,7 +678,7 @@ class LimxEEposeRoughEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum: CurriculumCfg = CurriculumCfg()
+    curriculum: CurriculumCfg | None = None
 
     def __post_init__(self):
         """Post initialization."""
@@ -741,6 +749,7 @@ class LimxEEposeRoughEnvCfg_PLAY(LimxEEposeRoughEnvCfg):
         # only end episodes on time_out (= trajectory complete); disable all other
         # terminations that would interrupt trajectory playback mid-way
         del self.terminations.base_contact
+        del self.terminations.knee_contact
         del self.terminations.bad_orientation
         del self.terminations.ee_contact
         del self.terminations.bad_height
@@ -792,6 +801,7 @@ class LimxEEposeCommandEnvCfg_PLAY(LimxEEposeRoughEnvCfg):
 
         # keep the fixed-command play running until the user closes the app.
         del self.terminations.base_contact
+        del self.terminations.knee_contact
         del self.terminations.bad_orientation
         del self.terminations.ee_contact
         del self.terminations.bad_height

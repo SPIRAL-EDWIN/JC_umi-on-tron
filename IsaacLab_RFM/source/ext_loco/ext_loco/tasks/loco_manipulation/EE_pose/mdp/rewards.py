@@ -616,20 +616,30 @@ def foot_slip_l2(
     threshold: float,
     sensor_cfg: SceneEntityCfg,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    contact_grace_period: float = 0.1,
 ) -> torch.Tensor:
-    """Penalize horizontal foot velocity while the foot is in contact."""
+    """Penalize horizontal foot velocity during contact and brief contact losses.
+
+    The grace period prevents a policy from avoiding the penalty by rapidly
+    alternating between contact and no-contact states.  Once a foot has been
+    airborne longer than the grace period, it is treated as a normal swing foot
+    and is no longer subject to the slip penalty.
+    """
     asset: Articulation = env.scene[asset_cfg.name]
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
     net_contact_forces = contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids]
     is_contact = torch.max(torch.norm(net_contact_forces, dim=-1), dim=1)[0] > threshold
+    current_air_time = contact_sensor.data.current_air_time[:, sensor_cfg.body_ids]
+    recently_lost_contact = (current_air_time > 0.0) & (current_air_time <= contact_grace_period)
+    contact_or_grace = is_contact | recently_lost_contact
     foot_vel_xy = asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2]
-    return torch.sum(torch.square(torch.norm(foot_vel_xy, dim=-1)) * is_contact, dim=1)
+    return torch.sum(torch.square(torch.norm(foot_vel_xy, dim=-1)) * contact_or_grace, dim=1)
 
 
 def _walking_gate(
     env: ManagerBasedRLEnv,
     command_name: str = "EE_pose",
-    position_error_threshold: float = 0.5,
+    position_error_threshold: float = 0.3,
     position_error_transition: float = 0.25,
 ) -> torch.Tensor:
     """根据实时末端位置误差平滑切换到行走阶段。

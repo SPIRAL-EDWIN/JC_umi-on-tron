@@ -59,8 +59,8 @@ DEFAULT_TRAJECTORY = Path("/home/phi5090ii/UMI-ON-TRON/data/pushing.pkl")
 DEFAULT_QUEST_BRIDGE = Path(
     "/home/phi5090ii/steamvr/build/quest_controller_bridge"
 )
-# Training tracks the URDF's eef_link directly, so no legacy link6 -> tip
-# transform is applied during trajectory playback.
+# Training tracks the URDF's zero-offset eef_link/link6 frame directly, so no
+# link6 -> tip transform is applied during trajectory playback.
 TIP_OFFSET_POS = np.zeros(3, dtype=np.float64)
 TIP_OFFSET_RPY = (0.0, 0.0, 0.0)
 
@@ -1415,7 +1415,6 @@ def run(args: argparse.Namespace) -> None:
         args.max_leg_step,
     )
     initial_ee_position, initial_ee_rotation = simulation.ee_pose_base()
-    initial_ee_position[0] += 0.15
     simulation.set_target(
         initial_ee_position,
         initial_ee_rotation,

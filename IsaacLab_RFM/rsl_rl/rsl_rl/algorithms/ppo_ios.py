@@ -92,6 +92,28 @@ class PPO_IOS(PPO):
         self.use_clipped_value_loss = use_clipped_value_loss
         self.grad_coef = grad_coef
         self.transition = None  # not used
+        self.distributed = False
+        self.world_size = 1
+
+    def configure_distributed(self, enabled: bool):
+        self.distributed = enabled
+        self.world_size = torch.distributed.get_world_size() if enabled else 1
+
+    def _distributed_mean(self, value: torch.Tensor) -> torch.Tensor:
+        if not self.distributed:
+            return value
+        value = value.clone()
+        torch.distributed.all_reduce(value, op=torch.distributed.ReduceOp.SUM)
+        return value / self.world_size
+
+    def _average_gradients(self, parameters):
+        if not self.distributed:
+            return
+        for parameter in parameters:
+            if parameter.grad is None:
+                continue
+            torch.distributed.all_reduce(parameter.grad, op=torch.distributed.ReduceOp.SUM)
+            parameter.grad.div_(self.world_size)
 
     def init_storage(
         self,
@@ -255,6 +277,23 @@ class PPO_IOS(PPO):
     def compute_returns(self, last_critic_obs):
         last_values = self.actor_critic.evaluate(last_critic_obs).detach()
         self.storage.compute_returns(last_values, self.gamma, self.lam)
+        if self.distributed:
+            # RolloutBuffer normalizes locally. Recompute from the unmodified
+            # returns/values and normalize over the full cross-rank batch.
+            advantages = self.storage.buffers["returns"] - self.storage.buffers["values"]
+            moments = torch.stack(
+                (
+                    advantages.sum(),
+                    advantages.square().sum(),
+                    torch.tensor(advantages.numel(), device=self.device, dtype=advantages.dtype),
+                )
+            )
+            torch.distributed.all_reduce(moments, op=torch.distributed.ReduceOp.SUM)
+            mean = moments[0] / moments[2]
+            variance = moments[1] / moments[2] - mean.square()
+            self.storage.buffers["advantages"].copy_(
+                (advantages - mean) / (variance.clamp_min(0.0).sqrt() + 1.0e-8)
+            )
 
     def _calc_kld_normal(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
         klds = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())
@@ -362,7 +401,7 @@ class PPO_IOS(PPO):
                     - 0.5,
                     axis=-1,
                 )
-                kl_mean = torch.mean(kl)
+                kl_mean = self._distributed_mean(torch.mean(kl))
 
                 if torch.isfinite(kl_mean):
                     if kl_mean > self.desired_kl * 2.0:
@@ -400,6 +439,11 @@ class PPO_IOS(PPO):
             invalid_losses = [
                 name for name, loss in loss_item.items() if not torch.isfinite(loss).all()
             ]
+            if self.distributed:
+                invalid_flag = torch.tensor(bool(invalid_losses), device=self.device, dtype=torch.int32)
+                torch.distributed.all_reduce(invalid_flag, op=torch.distributed.ReduceOp.MAX)
+                if invalid_flag.item() and not invalid_losses:
+                    invalid_losses = ["non-finite loss on another rank"]
             if invalid_losses:
                 self.tf_gru_optimizer.zero_grad()
                 self.ppo_optimizer.zero_grad()
@@ -426,6 +470,9 @@ class PPO_IOS(PPO):
             mse_loss.backward()
             ppo_loss.backward()
 
+            self._average_gradients(self.gru.parameters())
+            self._average_gradients(self.tf_encoder.parameters())
+            self._average_gradients(self.actor_critic.parameters())
             grad_norms = {
                 "gru": nn.utils.clip_grad_norm_(self.gru.parameters(), self.max_grad_norm),
                 "tf_encoder": nn.utils.clip_grad_norm_(self.tf_encoder.parameters(), self.max_grad_norm),
@@ -434,6 +481,11 @@ class PPO_IOS(PPO):
             invalid_gradients = [
                 name for name, norm in grad_norms.items() if not torch.isfinite(norm)
             ]
+            if self.distributed:
+                invalid_flag = torch.tensor(bool(invalid_gradients), device=self.device, dtype=torch.int32)
+                torch.distributed.all_reduce(invalid_flag, op=torch.distributed.ReduceOp.MAX)
+                if invalid_flag.item() and not invalid_gradients:
+                    invalid_gradients = ["non-finite gradient on another rank"]
             if invalid_gradients:
                 self.tf_gru_optimizer.zero_grad()
                 self.ppo_optimizer.zero_grad()
@@ -445,7 +497,7 @@ class PPO_IOS(PPO):
             self.tf_gru_optimizer.step()
             self.ppo_optimizer.step()
             for key in loss_item:
-                accumulated_losses[key] += loss_item[key].detach().item()
+                accumulated_losses[key] += self._distributed_mean(loss_item[key].detach()).item()
         self.storage.clear()
         num_updates = self.num_learning_epochs * self.num_mini_batches
         return {name: loss / num_updates for name, loss in accumulated_losses.items()}
