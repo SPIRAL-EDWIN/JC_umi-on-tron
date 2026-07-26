@@ -135,7 +135,7 @@ LIMX_SF_TRON1A_ARM = ArticulationCfg(
         activate_contact_sensors=True,
         fix_base=False,
         make_instanceable=True,
-        merge_fixed_joints=False,  # keep the zero-offset eef_link/J6 frame for EE tracking
+        merge_fixed_joints=False,  # keep the camera-center eef_link body for EE tracking
         joint_drive=sim_utils.UrdfFileCfg.JointDriveCfg(
             drive_type="force",
             gains=sim_utils.UrdfFileCfg.JointDriveCfg.PDGainsCfg(stiffness=0.0, damping=0.0),

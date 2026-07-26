@@ -981,8 +981,8 @@
   <joint name="gripper_fixed_joint" type="fixed">
     
         
-    <!-- Keep the training EEF at the link6/J6 frame. -->
-    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <!-- Controller middle-camera optical center, expressed in link6/J6. -->
+    <origin xyz="0.1039414 0.0000388 0.0767217" rpy="0 0.2618 0"/>
     
         
     <parent link="link6"/>

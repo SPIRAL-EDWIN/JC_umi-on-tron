@@ -668,6 +668,15 @@
     <limit lower="-3.14" upper="3.14" effort="3" velocity="6.28" />
   </joint>
 
+  <link name="eef_link" />
+
+  <joint name="eef_camera_fixed_joint" type="fixed">
+    <parent link="link6" />
+    <child link="eef_link" />
+    <!-- Controller middle-camera optical center, expressed in link6/J6. -->
+    <origin xyz="0.1039414 0.0000388 0.0767217" rpy="0 0.2618 0" />
+  </joint>
+
   <joint name="limx_imu_joint" type="fixed">
     <parent link="base_Link" />
     <child link="limx_imu" />

@@ -133,7 +133,7 @@ class CommandsCfgPlay:
         file_path="/home/phi5090ii/NYX/umi-on-tron-lab/IsaacLab_RFM/data/pushing.pkl",
         planar_center=True,
         # add_random_height_range=(-0.05, 0.05),
-        # eef_link is a zero-offset alias of link6/J6, so no extra tip offset is applied.
+        # eef_link is already the controller middle-camera optical frame.
         tip_offset_pos=(0.0, 0.0, 0.0),
         tip_offset_rpy=(0.0, 0.0, 0.0),
         episode_length_s=10,

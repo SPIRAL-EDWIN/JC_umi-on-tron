@@ -5,7 +5,7 @@ replicating PicklePoseSequenceCommand used in LimxEEposeRoughEnvCfg_PLAY.
 
 Key operations (matching IsaacLab play mode exactly):
   1. planar_center: subtract mean of frames [1,2,3] x,y from all frames
-  2. tip_offset:    transform UMI tip frame -> tracked link6 frame
+  2. EEF frame:     use the controller middle-camera optical frame directly
   3. command_origin anchoring: anchor trajectory to actual EE world pos at start
   4. step rate:     advance int(CONTROL_DT / SIM_DT) = 4 pkl steps per 50Hz publish
 
@@ -37,13 +37,13 @@ from nav_msgs.msg import Odometry
 # ---------------------------------------------------------------------------
 DEFAULT_PKL_PATH = "/home/phi5090ii/NYX/umi-on-tron-lab/IsaacLab_RFM/data/pushing.pkl"
 DEFAULT_PLANAR_CENTER = True
-# link6 -> UMI tip offset (tip_offset_pos, tip_offset_rpy from CommandsCfgPlay)
-TIP_OFFSET_POS = np.array([0.08657, -0.0249, -0.00024366])
-TIP_OFFSET_RPY = (-math.pi * 0.5, 0.0, -math.pi * 0.5)  # intrinsic XYZ: Rx(-90) then Rz(-90)
+# The URDF's eef_link is already the controller middle-camera optical frame.
+TIP_OFFSET_POS = np.zeros(3)
+TIP_OFFSET_RPY = (0.0, 0.0, 0.0)
 SIM_DT = 0.005    # pkl recording dt = IsaacLab sim dt (200 Hz)
 CONTROL_DT = 0.02 # policy / publish rate (50 Hz)
 # Fallback EE position in base frame when TF2 and ground truth are unavailable
-EE_INIT_POS_BASE = np.array([0.145308, 0.0, 0.140205])  # from SolefootController::init()
+EE_INIT_POS_BASE = np.array([0.247147, 0.000040, 0.247502])  # camera-center EEF at the configured initial joints
 # ---------------------------------------------------------------------------
 
 
@@ -167,10 +167,8 @@ class PklTrajectoryPublisher:
             self.ee_pos_all[..., :2] -= start_means
             rospy.loginfo("planar_center applied (mean xy subtracted from frames [1,2,3]).")
 
-        # Tip offset: tip frame -> link6 frame
-        #   T_link6 = T_tip * T_offset^-1
-        #   link_pos = target_pos + target_rot @ tip_pos_inv
-        #   link_rot = target_rot @ tip_rot_inv
+        # Kept as an identity transform because the trajectory and eef_link
+        # both use the controller middle-camera optical frame.
         tip_rot = euler_xyz_to_matrix(TIP_OFFSET_RPY)
         self.tip_rot_inv = tip_rot.T
         self.tip_pos_inv = -self.tip_rot_inv @ TIP_OFFSET_POS
@@ -204,13 +202,13 @@ class PklTrajectoryPublisher:
         self._base_quat_wxyz = np.array([q.w, q.x, q.y, q.z])
 
     def _get_ee_world_pos(self) -> Optional[np.ndarray]:
-        """Return link6 world position.
+        """Return the camera-center EEF world position.
         Priority: TF2 lookup -> ground truth base + default FK offset.
         """
         # Option 1: TF2
         try:
             tf = self._tf_buffer.lookup_transform(
-                "world", "link6", rospy.Time(0), rospy.Duration(0.5)
+                "world", "eef_link", rospy.Time(0), rospy.Duration(0.5)
             )
             p = tf.transform.translation
             return np.array([p.x, p.y, p.z])
@@ -231,16 +229,16 @@ class PklTrajectoryPublisher:
         step_idx = max(0, min(step_idx, self.n_steps - 1))
         ep = self.episode_idx
 
-        target_pos = self.ee_pos_all[ep, step_idx].copy()   # (3,) tip frame, centered
-        target_rot = self.ee_rot_all[ep, step_idx]           # (3,3) tip frame
+        target_pos = self.ee_pos_all[ep, step_idx].copy()   # (3,) camera EEF frame, centered
+        target_rot = self.ee_rot_all[ep, step_idx]           # (3,3) camera EEF frame
 
-        # Transform tip -> link6
-        link_pos = target_pos + target_rot @ self.tip_pos_inv
-        link_rot = target_rot @ self.tip_rot_inv
+        # Identity trajectory-frame -> eef_link transform
+        eef_pos = target_pos + target_rot @ self.tip_pos_inv
+        eef_rot = target_rot @ self.tip_rot_inv
 
         # Anchor to EE world start position
-        world_pos = link_pos + self.command_origin  # type: ignore[operator]
-        quat = matrix_to_quat_wxyz(link_rot)
+        world_pos = eef_pos + self.command_origin  # type: ignore[operator]
+        quat = matrix_to_quat_wxyz(eef_rot)
 
         done = step_idx >= self.n_steps - 1
         return world_pos, quat, done

@@ -718,8 +718,12 @@ bool SolefootController::loadRLCfg() {
       jointNameToIndex_[jointNames_[i]] = i;
     }
 
-    // Init EE FK chain once (base_Link -> link6).
+    // Init the configured EE FK chain once.
     if (!eeFkReady_) {
+      std::string eeBaseLink;
+      std::string eeLink;
+      nh_.param<std::string>("/PointfootCfg/ee/base_link", eeBaseLink, "base_Link");
+      nh_.param<std::string>("/PointfootCfg/ee/ee_link", eeLink, "eef_link");
       std::string urdfString;
       if (!nh_.getParam("/robot_description", urdfString) || urdfString.empty()) {
         ROS_WARN("Failed to get robot_description for EE FK.");
@@ -727,8 +731,8 @@ bool SolefootController::loadRLCfg() {
         KDL::Tree tree;
         if (!kdl_parser::treeFromString(urdfString, tree)) {
           ROS_WARN("Failed to parse URDF into KDL tree for EE FK.");
-        } else if (!tree.getChain("base_Link", "link6", eeChain_)) {
-          ROS_WARN("Failed to build KDL chain base_Link -> link6.");
+        } else if (!tree.getChain(eeBaseLink, eeLink, eeChain_)) {
+          ROS_WARN_STREAM("Failed to build KDL chain " << eeBaseLink << " -> " << eeLink << ".");
         } else {
           eeFkSolver_ = std::make_unique<KDL::ChainFkSolverPos_recursive>(eeChain_);
           eeChainJointNames_.clear();
@@ -821,7 +825,7 @@ void SolefootController::computeObservation() {
     jointPosRelNoAnkleVec(static_cast<int>(i)) = jointPosRelNoAnkle[i];
   }
 
-  // ---- EE forward kinematics (base_Link -> link6) ----
+  // ---- EE forward kinematics (configured base link -> EEF) ----
   Eigen::Vector3d eePosCurrent = Eigen::Vector3d::Zero();
   Eigen::Matrix3d eeRotCurrent = Eigen::Matrix3d::Identity();
   if (eeFkReady_ && eeFkSolver_) {

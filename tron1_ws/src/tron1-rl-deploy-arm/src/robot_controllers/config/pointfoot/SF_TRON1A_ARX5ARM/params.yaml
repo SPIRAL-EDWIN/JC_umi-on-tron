@@ -53,7 +53,7 @@ PointfootCfg:
 
   ee:
     base_link: base_Link
-    ee_link: link6
+    ee_link: eef_link
 
   ee_target:
     # If true (sim): compute EE tracking error using world/odom target pose (UMI-style), then express error in EE frame.
